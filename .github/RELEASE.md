@@ -31,7 +31,7 @@ Generate the minisign key pair once and keep the private key and password in a
 password manager:
 
 ```sh
-pnpm --dir desktop tauri signer generate -w ~/.tauri/zephium-updater.key
+pnpm -C desktop exec tauri signer generate -w ~/.tauri/zephium-updater.key
 ```
 
 The public key (the `.pub` file contents) is embedded in
