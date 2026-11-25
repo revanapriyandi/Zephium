@@ -968,6 +968,9 @@ impl Shell {
             self.search.include_history = value == "true";
         }
         self.tab_preferences.apply(&key, &value);
+        if key == "ui.tab-layout" {
+            self.apply_tab_band();
+        }
         if self.proxy.apply(&key, &value) {
             let server = self.proxy.server();
             let enabled = server.is_some();

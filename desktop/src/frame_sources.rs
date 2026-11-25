@@ -14,6 +14,8 @@ pub const SRC_FEATURES_SIDEBAR_ADDRESS_ADDRESSFIELD_SVELTE: &str =
     include_str!("../../frame/src/features/address/components/AddressField.svelte");
 pub const SRC_FEATURES_SIDEBAR_TABS_TABRAIL_SVELTE: &str =
     include_str!("../../frame/src/features/tabs/components/TabRail.svelte");
+pub const SRC_FEATURES_TABS_TOPTABS_SVELTE: &str =
+    include_str!("../../frame/src/features/tabs/components/TopTabs.svelte");
 pub const SRC_FEATURES_SIDEBAR_ESSENTIALS_ESSENTIALSRAIL_SVELTE: &str =
     include_str!("../../frame/src/features/essentials/components/EssentialsRail.svelte");
 pub const SRC_FEATURES_SIDEBAR_TABS_TABLIST_SVELTE: &str =

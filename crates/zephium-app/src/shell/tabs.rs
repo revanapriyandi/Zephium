@@ -93,6 +93,8 @@ pub(super) struct TabPreferences {
     pub(super) home: Option<String>,
     /// A regular new tab opens this page; none keeps the built-in page.
     pub(super) new_page: Option<url::Url>,
+    /// The tab strip sits above the page instead of in the sidebar.
+    pub(super) on_top: bool,
 }
 
 impl Default for TabPreferences {
@@ -110,12 +112,22 @@ impl Default for TabPreferences {
             startup_pages: Vec::new(),
             home: None,
             new_page: None,
+            on_top: false,
         }
     }
 }
 
 impl TabPreferences {
     /// Whether launch opens a list of pages: chosen, and with something in it.
+    /// The band a main window's page gives up to the tab strip.
+    pub(super) fn tab_band(&self) -> f64 {
+        if self.on_top {
+            zephium_core::layout::TAB_BAND
+        } else {
+            0.0
+        }
+    }
+
     pub(super) fn opens_pages(&self) -> bool {
         self.start_with_pages && !self.startup_pages.is_empty()
     }
@@ -133,6 +145,7 @@ impl TabPreferences {
             "tabs.new-page",
             "tabs.external-position",
             "tabs.archive",
+            "ui.tab-layout",
         ] {
             if let Some(value) = store.app_setting(key) {
                 preferences.apply(key, &value);
@@ -185,6 +198,8 @@ impl TabPreferences {
             ("tabs.archive", "12h") => self.archive_after = ArchiveAfter::HalfDay,
             ("tabs.archive", "1d") => self.archive_after = ArchiveAfter::Day,
             ("tabs.archive", "7d") => self.archive_after = ArchiveAfter::Week,
+            ("ui.tab-layout", "vertical") => self.on_top = false,
+            ("ui.tab-layout", "horizontal") => self.on_top = true,
             _ => {}
         }
     }

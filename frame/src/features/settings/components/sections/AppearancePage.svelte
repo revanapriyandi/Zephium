@@ -172,6 +172,23 @@
       onchange={(v) => void preferences.set("sidebar.mode", v)}
     />
   </SettingsRow>
+  <SettingsRow
+    settingId="appearance.tab-position"
+    title={m.settings_tab_position()}
+    description={m.settings_tab_position_desc()}
+  >
+    <SegmentedControl
+      label={m.settings_tab_position()}
+      size="compact"
+      value={preferences.value("ui.tab-layout") === "horizontal" ? "horizontal" : "vertical"}
+      disabled={preferences.saving()}
+      options={[
+        { value: "vertical", label: m.settings_tab_position_sidebar() },
+        { value: "horizontal", label: m.settings_tab_position_top() },
+      ]}
+      onchange={(v) => void preferences.set("ui.tab-layout", v)}
+    />
+  </SettingsRow>
 </SettingsGroup>
 
 <SettingsGroup title={m.look_typography()}>

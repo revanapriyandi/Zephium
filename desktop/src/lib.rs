@@ -9892,7 +9892,13 @@ mod tests {
         assert!(address.contains("class:sr-only={compact}"));
         assert_eq!(address.matches("data-zephium-address").count(), 1);
 
-        for (name, source) in [("tab rail", rail), ("essentials rail", essentials)] {
+        // Tabs on top move Today's rows into the strip over the page.
+        let top = crate::frame_sources::SRC_FEATURES_TABS_TOPTABS_SVELTE;
+        for (name, source) in [
+            ("tab rail", rail),
+            ("essentials rail", essentials),
+            ("top tab strip", top),
+        ] {
             for sentinel in [
                 "data-zephium-tab-id",
                 "data-zephium-tab-url",

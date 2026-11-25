@@ -62,6 +62,22 @@ impl Shell {
         split::drop_target(&tree, local, win.metrics.gap, x - region.x, y - region.y)
     }
 
+    /// Moves the tab strip of every main window to where the preference
+    /// now puts it, and lays the window out around it.
+    pub(super) fn apply_tab_band(&mut self) {
+        let band = self.tab_preferences.tab_band();
+        let mut changed = false;
+        for win in self.windows.iter_mut() {
+            if win.kind == WindowKind::Main && win.metrics.tab_band != band {
+                win.metrics.tab_band = band;
+                changed = true;
+            }
+        }
+        if changed {
+            let _ = self.relayout_with(true);
+        }
+    }
+
     pub(super) fn relayout(&self) -> NativeDispatch {
         self.relayout_with(false)
     }
@@ -159,7 +175,10 @@ impl Shell {
         let chrome_layout = layout::compute(win.size, win.mode, win.metrics, chrome_present);
         if !self.chrome.position(ChromeFrame {
             rect: chrome_layout.chrome,
-            fill_width: chrome_layout.content.is_none(),
+            // Tabs on top widen the chrome across the window, as an empty
+            // tab does: Windows then keeps its caption over the strip, not
+            // the page.
+            fill_width: chrome_layout.content.is_none() || win.metrics.top_band() > 0.0,
             travel,
         }) {
             return NativeDispatch::Rejected;
