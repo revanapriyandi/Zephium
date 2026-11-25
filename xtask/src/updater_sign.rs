@@ -34,14 +34,19 @@ fn check_assets(
 ) -> Result<(), &'static str> {
     const MAC: &str = "Zephium-macOS-arm64.app.tar.gz";
     const WINDOWS: &str = "Zephium-Windows-x64-setup.exe";
-    let expected = std::collections::BTreeSet::from([
+    // A release without macOS signing configured ships Windows alone; any
+    // other partial set is refused.
+    let windows_only = std::collections::BTreeSet::from([
         "SHA256SUMS".to_owned(),
         "latest.json".to_owned(),
+        WINDOWS.to_owned(),
+        format!("{WINDOWS}.sig"),
+    ]);
+    let mut complete = windows_only.clone();
+    complete.extend([
         "Zephium-macOS-arm64.dmg".to_owned(),
         MAC.to_owned(),
         format!("{MAC}.sig"),
-        WINDOWS.to_owned(),
-        format!("{WINDOWS}.sig"),
     ]);
     let mut actual = std::collections::BTreeSet::new();
     for entry in std::fs::read_dir(directory).map_err(|_| "cannot read release assets")? {
@@ -56,9 +61,13 @@ fn check_assets(
                 .map_err(|_| "invalid asset name")?,
         );
     }
-    if actual != expected {
+    let macos = if actual == complete {
+        true
+    } else if actual == windows_only {
+        false
+    } else {
         return Err("incomplete or unexpected release asset set");
-    }
+    };
     let manifest: serde_json::Value = serde_json::from_slice(
         &std::fs::read(directory.join("latest.json")).map_err(|_| "cannot read latest.json")?,
     )
@@ -77,12 +86,19 @@ fn check_assets(
         .and_then(|value| value.as_object())
         .ok_or("latest.json platforms are missing")?;
     let base = format!("https://github.com/{repository}/releases/download/{tag}/");
-    for (platform, asset) in [
-        ("darwin-aarch64", MAC),
-        ("darwin-aarch64-app", MAC),
+    let mut required = vec![
         ("windows-x86_64", WINDOWS),
         ("windows-x86_64-nsis", WINDOWS),
-    ] {
+    ];
+    if macos {
+        required.extend([("darwin-aarch64", MAC), ("darwin-aarch64-app", MAC)]);
+    } else if platforms
+        .keys()
+        .any(|platform| platform.starts_with("darwin-"))
+    {
+        return Err("a Windows-only release must not list macOS updater platforms");
+    }
+    for (platform, asset) in required {
         let entry = platforms
             .get(platform)
             .ok_or("required updater platform is missing")?;
@@ -328,6 +344,41 @@ mod tests {
             );
             std::fs::write(&asset, bytes).unwrap();
         }
+        // A Windows-only release (no macOS signing configured) is complete
+        // without any macOS asset or platform, and only then.
+        let windows_only = {
+            let mut manifest = good.clone();
+            let platforms = manifest["platforms"].as_object_mut().unwrap();
+            platforms.retain(|key, _| key.starts_with("windows-"));
+            manifest
+        };
+        let mac_files = [
+            "Zephium-macOS-arm64.dmg",
+            "Zephium-macOS-arm64.app.tar.gz",
+            "Zephium-macOS-arm64.app.tar.gz.sig",
+        ]
+        .map(|name| (name, std::fs::read(directory.join(name)).unwrap()));
+        for (name, _) in &mac_files {
+            std::fs::remove_file(directory.join(name)).unwrap();
+        }
+        assert_eq!(check(&windows_only), Ok(()));
+        assert_eq!(
+            check(&good),
+            Err("a Windows-only release must not list macOS updater platforms")
+        );
+        for key in ["windows-x86_64", "windows-x86_64-nsis"] {
+            let mut bad = windows_only.clone();
+            bad["platforms"].as_object_mut().unwrap().remove(key);
+            assert!(check(&bad).is_err(), "missing platform {key}");
+        }
+        for (name, bytes) in &mac_files {
+            std::fs::write(directory.join(name), bytes).unwrap();
+        }
+        assert_eq!(check(&good), Ok(()));
+        assert!(
+            check(&windows_only).is_err(),
+            "full release needs macOS platforms"
+        );
         // Keep each original signature while changing only its downloaded bytes.
         for asset in [
             "Zephium-macOS-arm64.app.tar.gz",

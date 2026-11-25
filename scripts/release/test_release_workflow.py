@@ -83,15 +83,20 @@ class ReleaseWorkflowTests(unittest.TestCase):
         expression = match.group(1)
         for statuses in itertools.product(['success', 'failure', 'skipped', 'cancelled'], repeat=5):
             results = dict(zip(dependencies, statuses))
-            for emergency, cancelled in itertools.product([False, True], repeat=2):
+            for emergency, cancelled, macos in itertools.product([False, True], repeat=3):
                 condition = expression.replace('!cancelled()', str(not cancelled))
                 condition = condition.replace('inputs.emergency', str(emergency))
+                condition = condition.replace('needs.gate.outputs.macos', repr('true' if macos else 'false'))
                 condition = re.sub(r'needs\.(\w+)\.result', lambda m: repr(results[m[1]]), condition)
                 condition = condition.replace('&&', ' and ').replace('||', ' or ')
                 actual = eval(condition, {'__builtins__': {}}, {})
-                expected = not cancelled and all(results[n] == 'success' for n in dependencies if n != 'components') and (
+                # Without complete Apple signing the macOS job is skipped and
+                # Windows ships alone; with it, macOS must succeed.
+                expected = not cancelled and all(
+                    results[n] == 'success' for n in dependencies if n not in ('components', 'macos')
+                ) and (results['macos'] == ('success' if macos else 'skipped')) and (
                     results['components'] == 'success' or (emergency and results['components'] == 'skipped'))
-                self.assertEqual(actual, expected, (results, emergency, cancelled))
+                self.assertEqual(actual, expected, (results, emergency, cancelled, macos))
 
 
     def test_emergency_component_bypass_is_visible_in_created_release_notes(self):
@@ -100,7 +105,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('EMERGENCY_SKIP_COMPONENTS: ${{ inputs.emergency }}', publish)
         step = publish.split('      - name: Create the draft release\n', 1)[1]
         script = textwrap.dedent(step.split('        run: |\n', 1)[1])
-        for emergency in ['true', 'false', '']:
+        for emergency, macos in itertools.product(['true', 'false', ''], ['true', 'false']):
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 (root / 'dist').mkdir()
@@ -110,10 +115,14 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script], cwd=root,
                     env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}', RUNNER_TEMP=directory,
                              TAG='v1.2.3', VERSION='1.2.3', GITHUB_REPOSITORY='example/repo',
-                             SIGNPATH_ENABLED='false', EMERGENCY_SKIP_COMPONENTS=emergency), capture_output=True, text=True)
+                             SIGNPATH_ENABLED='false', MACOS_ENABLED=macos,
+                             EMERGENCY_SKIP_COMPONENTS=emergency), capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 notes = (root / 'notes.md').read_text()
                 self.assertEqual('EMERGENCY: Component tests were skipped' in notes, emergency == 'true')
+                # A Windows-only release offers no macOS download.
+                self.assertEqual('Zephium-macOS-arm64.dmg' in notes, macos == 'true')
+                self.assertIn('Zephium-Windows-x64-setup.exe', notes)
 
 
     def test_stable_publisher_rejects_unrelated_failed_or_other_tag_runs(self):
