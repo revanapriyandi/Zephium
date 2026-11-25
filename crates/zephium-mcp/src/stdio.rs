@@ -83,7 +83,8 @@ impl Drop for Process {
 }
 
 impl StdioServer {
-    pub(crate) fn spawn(&self) -> Result<(Process, Bounded<ChildStdout>, ChildStdin), McpError> {
+    /// Starts the program; dropping the returned [`Process`] ends its whole tree.
+    pub fn spawn(&self) -> Result<(Process, Bounded<ChildStdout>, ChildStdin), McpError> {
         if !self.program.is_absolute() || self.args.len() > 64 {
             return Err(McpError::Spawn);
         }
