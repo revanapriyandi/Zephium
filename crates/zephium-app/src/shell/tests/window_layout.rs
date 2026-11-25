@@ -567,3 +567,35 @@ fn a_tab_leaving_a_split_keeps_the_rest_paired() {
     assert!(last(&screen).split_group.is_none());
     assert_eq!(active_id(&screen), third);
 }
+
+#[test]
+fn tabs_on_top_follow_the_stored_choice_and_ignore_anything_else() {
+    let band = |shell: &Shell| shell.windows.focused().unwrap().metrics.tab_band;
+    let store = Arc::new(FakeStore::default());
+    assert!(store.set_app_setting("ui.tab-layout".into(), "horizontal".into()));
+    let (mut shell, _engine, _screen) = setup_with(store);
+    shell.handle(Command::Bootstrap);
+    assert_eq!(band(&shell), zephium_core::layout::TAB_BAND);
+
+    let vertical = shell.operation_set_app_setting("ui.tab-layout".into(), "vertical".into());
+    assert_eq!(vertical.outcome, OperationOutcome::Deferred);
+    assert_eq!(band(&shell), 0.0);
+    for malformed in ["top", "Horizontal", " horizontal", ""] {
+        let refused = shell.operation_set_app_setting("ui.tab-layout".into(), malformed.into());
+        assert_eq!(
+            refused.reason,
+            OperationReason::InvalidInput,
+            "{malformed:?}"
+        );
+        assert_eq!(band(&shell), 0.0, "{malformed:?}");
+    }
+    shell.operation_set_app_setting("ui.tab-layout".into(), "horizontal".into());
+    assert_eq!(band(&shell), zephium_core::layout::TAB_BAND);
+
+    // A stored value this build does not know keeps the tabs in the sidebar.
+    let corrupt = Arc::new(FakeStore::default());
+    assert!(corrupt.set_app_setting("ui.tab-layout".into(), "diagonal".into()));
+    let (mut shell, _engine, _screen) = setup_with(corrupt);
+    shell.handle(Command::Bootstrap);
+    assert_eq!(band(&shell), 0.0);
+}

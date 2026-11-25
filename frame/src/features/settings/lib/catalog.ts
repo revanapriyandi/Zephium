@@ -68,6 +68,12 @@ export const fields = {
     description: m.settings_sidebar_desc,
     initial: "default",
   },
+  "appearance.tab-position": {
+    section: "appearance",
+    label: m.settings_tab_position,
+    description: m.settings_tab_position_desc,
+    initial: "vertical",
+  },
   "appearance.material": {
     section: "appearance",
     label: m.settings_material,

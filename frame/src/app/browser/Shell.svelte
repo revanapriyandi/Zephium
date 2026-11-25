@@ -30,11 +30,16 @@
   import { SidebarBody } from "$features/tabs";
   import { TabList } from "$features/tabs";
   import { TabRail } from "$features/tabs";
+  import { TopTabs } from "$features/tabs";
   import { loadNavigationError, loadTabCapacityState } from "$features/tabs";
   import { selectionGlide } from "$features/tabs";
   import * as tabDrag from "$session/tab-drag.svelte";
   import { requestTab } from "$session/work-tab.svelte";
-  import { expanded as sidebarWidth, expandBriefly } from "$session/sidebar-mode.svelte";
+  import {
+    expanded as sidebarWidth,
+    expandBriefly,
+    sidebarMode,
+  } from "$session/sidebar-mode.svelte";
   import { uiCommands as ui } from "$domain/ui-commands";
   import { untrack, type Component, type Snippet } from "svelte";
   import { clearRequest } from "$domain/site-data";
@@ -306,7 +311,13 @@
   // The rail shows one flat list. Folders and split grouping are shapes that
   // need labels, so they stay in the expanded body.
   let railTabs = $derived(
-    tabs.tabs().filter((tab) => !railEssentials.some((essential) => essential.id === tab.id)),
+    tabs
+      .tabs()
+      .filter(
+        (tab) =>
+          !railEssentials.some((essential) => essential.id === tab.id) &&
+          !(tabsOnTop && railClosable.has(tab.id)),
+      ),
   );
   let railEssentials = $derived(
     tree.favorites.flatMap((entry) => (entry.kind === "tab" ? [entry.tab] : [])),
@@ -316,6 +327,13 @@
   const openSwitcher = () => void commands.tabSwitcherOpen().catch(() => false);
   let railClosable = $derived(
     new Set(tree.today.flatMap((entry) => (entry.kind === "tab" ? [entry.tab.id] : []))),
+  );
+  // Today's tabs stand in a strip over the page instead of the column. Native
+  // lowers the page by the strip's band on the same preference; a hidden
+  // sidebar keeps them in its card, and Work lists its own. Every tab keeps
+  // exactly one row either way, so its presentation sentinels stay single.
+  let tabsOnTop = $derived(
+    preferences.value("ui.tab-layout") === "horizontal" && sidebarMode() !== "hidden" && !inWork,
   );
 
   function linkCopied(copied: boolean) {
@@ -524,7 +542,7 @@
             <SidebarBody
               bind:this={sidebarBody}
               pinned={tree.pinned}
-              today={tree.today}
+              today={tabsOnTop ? [] : tree.today}
               {splitting}
               onSelect={selectTab}
             >
@@ -621,6 +639,7 @@
       >{/snippet}</Sidebar
   >
   <div class="stage-column">
+    {#if tabsOnTop}<TopTabs entries={tree.today} onSelect={selectTab} />{/if}
     {#if browserPage.navigationFailed()}<div class="navigation-error" role="alert">
         {m.browser_nav_failed()}
       </div>{/if}

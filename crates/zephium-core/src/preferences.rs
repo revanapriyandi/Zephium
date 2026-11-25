@@ -518,6 +518,10 @@ mod tests {
         assert!(!value_allowed("tabs.startup", "pagez"));
         assert!(value_allowed("ui.text-size", "large"));
         assert!(value_allowed("ui.tab-layout", "horizontal"));
+        assert!(value_allowed("ui.tab-layout", "vertical"));
+        for value in ["", "top", "Horizontal", " horizontal", "vertical "] {
+            assert!(!value_allowed("ui.tab-layout", value));
+        }
         assert!(value_allowed("onboarding", "done"));
         for key in ["ai.enabled", "work.enabled", "work.screenshots"] {
             assert!(KEYS.contains(&key));

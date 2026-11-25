@@ -19,6 +19,25 @@ pub struct Metrics {
     pub caption: f64,
     /// The column is put away until the pointer asks for it.
     pub sidebar_hidden: bool,
+    /// The band the tab strip takes above the page when tabs sit on top;
+    /// zero keeps them in the sidebar.
+    pub tab_band: f64,
+}
+
+/// The tab strip's band above the page: a 32px strip and the 8px gap under
+/// it. The frame's top tab strip draws exactly this height.
+pub const TAB_BAND: f64 = 40.0;
+
+impl Metrics {
+    /// The band the page gives up to tabs on top. A hidden sidebar keeps its
+    /// tabs in its card, so the page keeps the window.
+    pub fn top_band(&self) -> f64 {
+        if self.sidebar_hidden {
+            0.0
+        } else {
+            self.tab_band
+        }
+    }
 }
 
 impl Default for Metrics {
@@ -29,6 +48,7 @@ impl Default for Metrics {
             gap: 8.0,
             caption: 0.0,
             sidebar_hidden: false,
+            tab_band: 0.0,
         }
     }
 }
@@ -140,7 +160,12 @@ fn sidebar(win: Size, m: Metrics, content_present: bool) -> Layout {
 
     // Hidden, the column keeps its width beneath the page, so it can come
     // over it without laying out again, and the page starts at the gutter.
-    let chrome_width = if m.sidebar_hidden {
+    // Tabs on top need the chrome across the window to draw their strip; the
+    // page lies over the rest of it, as it does over a hidden sidebar.
+    let band = m.top_band();
+    let chrome_width = if band > 0.0 {
+        win.width
+    } else if m.sidebar_hidden {
         (p + m.sidebar_width + HIDDEN_SHADOW_REACH).min(win.width)
     } else {
         p + m.sidebar_width
@@ -153,9 +178,9 @@ fn sidebar(win: Size, m: Metrics, content_present: bool) -> Layout {
     };
     let content = Rect::new(
         content_x,
-        p + m.caption,
+        p + m.caption + band,
         win.width - content_x - p,
-        inner_h - m.caption,
+        inner_h - m.caption - band,
     );
     Layout {
         chrome,
@@ -183,7 +208,37 @@ mod tests {
         gap: 8.0,
         caption: 0.0,
         sidebar_hidden: false,
+        tab_band: 0.0,
     };
+
+    #[test]
+    fn tabs_on_top_lower_the_page_under_a_full_width_chrome() {
+        let m = Metrics {
+            tab_band: TAB_BAND,
+            ..M
+        };
+        let l = compute(Size::new(1200.0, 800.0), Mode::Sidebar, m, true);
+        assert_eq!(l.chrome, Rect::new(0.0, 0.0, 1200.0, 800.0));
+        assert_eq!(l.content, Some(Rect::new(256.0, 48.0, 936.0, 744.0)));
+        // A hidden sidebar keeps its tabs in its card: the page keeps the window.
+        let hidden = Metrics {
+            sidebar_hidden: true,
+            ..m
+        };
+        assert_eq!(hidden.top_band(), 0.0);
+        assert_eq!(
+            compute(Size::new(1200.0, 800.0), Mode::Sidebar, hidden, true),
+            compute(
+                Size::new(1200.0, 800.0),
+                Mode::Sidebar,
+                Metrics {
+                    sidebar_hidden: true,
+                    ..M
+                },
+                true
+            )
+        );
+    }
 
     #[test]
     fn a_hidden_sidebar_gives_the_page_the_window_and_waits_beneath_it() {
