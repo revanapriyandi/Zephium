@@ -163,6 +163,16 @@ export class ModelsSession {
     return this.act("endpoint", () => commands.workSetModelEndpoint(this.profile, base));
   }
 
+  /** Runs chosen models on the person's Claude plan; Rust looks at Claude Code
+   *  again before it turns on, so this can take a few seconds. */
+  setClaudeAccount(enabled: boolean) {
+    return this.act(
+      "claude_account",
+      () => commands.workSetClaudeAccount(this.profile, enabled),
+      KEY_TIMEOUT,
+    );
+  }
+
   /** The person's own server's models, asked once per address it is set to.
    *  An empty answer or a fault settles it; a new address asks again. */
   async listEndpoint() {

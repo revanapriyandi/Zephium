@@ -68,7 +68,7 @@ impl AgentProviderModelClient {
             None => (&UNPRICED, FALLBACK_PRICE_REVISION),
         };
         let rate = |value: u64| value.max(1);
-        let rates = if entry.is_free_compatible() {
+        let rates = if entry.is_free_usage() {
             AgentProviderTokenRates::free()
         } else {
             AgentProviderTokenRates::try_new(

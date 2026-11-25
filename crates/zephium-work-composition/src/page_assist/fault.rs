@@ -64,6 +64,7 @@ pub(crate) fn provider_name(provider: WorkModelProvider) -> &'static str {
         WorkModelProvider::Cerebras => "Cerebras",
         WorkModelProvider::Compatible => "your server",
         WorkModelProvider::Cloud => "Zephium",
+        WorkModelProvider::ClaudeAccount => "your Claude plan",
     }
 }
 
@@ -75,7 +76,8 @@ pub(crate) fn cost(entry: &WorkModelEntry, usage: &WorkModelUsage) -> PageAssist
             model,
             credits: None,
         },
-        _ if entry.is_free_compatible() => PageAssistCostV1::Local { model },
+        WorkModelProvider::ClaudeAccount => PageAssistCostV1::Plan { model },
+        _ if entry.is_free_usage() => PageAssistCostV1::Local { model },
         provider => {
             let micros = usage.cost_micros.or_else(|| {
                 entry.price.as_ref().map(|price| {
@@ -100,6 +102,47 @@ pub(crate) fn cost(entry: &WorkModelEntry, usage: &WorkModelUsage) -> PageAssist
                 usd: micros.map(cost::usd),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod plan_cost_tests {
+    use super::*;
+    use zephium_core::work::model::*;
+
+    #[test]
+    fn a_claude_plan_reply_names_the_plan() {
+        let entry = WorkModelEntry {
+            id: "claude_account/sonnet".into(),
+            model: WorkModelRef {
+                provider: WorkModelProvider::ClaudeAccount,
+                wire: WorkModelWire::AnthropicMessages,
+                model: "sonnet".into(),
+            },
+            display_name: "Claude Sonnet (your plan)".into(),
+            roles: vec![WorkModelRole::Page],
+            recommended: false,
+            context_window: 1,
+            max_output: 1,
+            supports: WorkModelSupports {
+                tools: true,
+                vision: true,
+                prompt_cache: false,
+                reasoning: false,
+                native_search: false,
+            },
+            price: Some(WorkModelPrice {
+                input: 0,
+                cached_input: 0,
+                output: 0,
+            }),
+        };
+        assert_eq!(
+            cost(&entry, &WorkModelUsage::default()),
+            PageAssistCostV1::Plan {
+                model: "Claude Sonnet (your plan)".into()
+            }
+        );
     }
 }
 

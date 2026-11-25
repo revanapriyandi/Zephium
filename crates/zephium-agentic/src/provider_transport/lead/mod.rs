@@ -159,9 +159,9 @@ impl LeadTarget {
             WorkModelProvider::Mistral => (WorkModelWire::ChatCompletions, MISTRAL_BASE),
             WorkModelProvider::Groq => (WorkModelWire::ChatCompletions, GROQ_BASE),
             WorkModelProvider::Cerebras => (WorkModelWire::ChatCompletions, CEREBRAS_BASE),
-            WorkModelProvider::Compatible | WorkModelProvider::Cloud => {
-                return Err(WorkModelError::BadRequest)
-            }
+            WorkModelProvider::Compatible
+            | WorkModelProvider::Cloud
+            | WorkModelProvider::ClaudeAccount => return Err(WorkModelError::BadRequest),
         };
         Ok(Self {
             wire,
@@ -201,7 +201,8 @@ impl LeadTarget {
             | WorkModelProvider::Groq
             | WorkModelProvider::Cerebras
             | WorkModelProvider::Compatible
-            | WorkModelProvider::Cloud => return Err(WorkModelError::BadRequest),
+            | WorkModelProvider::Cloud
+            | WorkModelProvider::ClaudeAccount => return Err(WorkModelError::BadRequest),
         };
         Ok(Self {
             wire,

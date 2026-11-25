@@ -33,6 +33,7 @@ const names: Record<WorkModelProvider, string> = {
   cerebras: "Cerebras",
   compatible: "Custom",
   cloud: "Zephium",
+  claude_account: "Claude plan",
 };
 
 export function providerName(provider: WorkModelProvider): string {
@@ -62,6 +63,8 @@ export function usable(models: WorkModelsV1 | null, provider: WorkModelProvider)
         (entry) => entry.model.provider === "cloud" && !models.cloud.locked.includes(entry.id),
       )
     );
+  if (provider === "claude_account")
+    return models.claude_account.enabled && models.claude_account.state === "signed_in";
   if (provider === "compatible")
     return (
       !!models.providers.find((row) => row.provider === "compatible")?.base &&
@@ -88,7 +91,7 @@ export function pickerGroups(
   endpoint: readonly WorkModelEntry[] = [],
 ) {
   const entries = [...(models?.entries ?? []), ...endpoint];
-  const order: readonly WorkModelProvider[] = ["cloud", ...keyedProviders];
+  const order: readonly WorkModelProvider[] = ["cloud", "claude_account", ...keyedProviders];
   const ready: ModelGroup[] = [];
   const needsKey: WorkModelProvider[] = [];
   for (const provider of order) {

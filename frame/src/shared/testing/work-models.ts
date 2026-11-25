@@ -19,6 +19,7 @@ const WIRE = {
   cerebras: "chat_completions",
   compatible: "chat_completions",
   cloud: "anthropic_messages",
+  claude_account: "anthropic_messages",
 } as const;
 
 const SLUG = {
@@ -33,6 +34,7 @@ const SLUG = {
   cerebras: "cerebras",
   compatible: "compatible",
   cloud: "zephium",
+  claude_account: "claude_account",
 } as const;
 
 export function entry(
@@ -142,6 +144,7 @@ export function models(options: {
   lead?: string | null;
   chosen?: string | null;
   effort?: WorkModelReasoning;
+  claudeAccount?: WorkModelsV1["claude_account"];
 }): WorkModelsV1 {
   const cloud = options.cloud
     ? [entry("cloud", "claude-sonnet-5-5", "Claude Sonnet 5.5", true, ["lead", "page"])]
@@ -186,5 +189,6 @@ export function models(options: {
       ? (options.effort ??
         (lead.includes("medium") ? "medium" : (lead.find((level) => level !== "low") ?? null)))
       : null,
+    claude_account: options.claudeAccount ?? { enabled: false, state: "unknown", account: null },
   };
 }

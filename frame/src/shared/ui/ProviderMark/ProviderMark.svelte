@@ -15,13 +15,15 @@
     | "groq"
     | "cerebras"
     | "compatible"
-    | "cloud";
+    | "cloud"
+    | "claude_account";
 
   /** A provider's own mark in its own colours; a monochrome mark takes the
    *  surrounding ink, so it holds on a light tile and a dark one. */
   let { provider, size = 16 }: { provider: Provider; size?: number } = $props();
   const uid = $props.id();
-  let mark = $derived(MARKS[provider] ?? null);
+  // Models on the person's Claude plan are Anthropic's models.
+  let mark = $derived(MARKS[provider === "claude_account" ? "anthropic" : provider] ?? null);
 </script>
 
 {#if mark}<svg

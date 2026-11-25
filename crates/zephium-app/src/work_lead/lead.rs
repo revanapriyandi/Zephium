@@ -1647,8 +1647,15 @@ where
             CallFailure::Refused(error) => model_fault(error, hosted),
             _ => None,
         };
+        let plan = match failure {
+            CallFailure::Refused(error) if provider == WorkModelProvider::ClaudeAccount => {
+                plan_note(error)
+            }
+            _ => None,
+        };
         step.note = Some(
             match failure {
+                _ if plan.is_some() => plan.unwrap_or_default(),
                 CallFailure::Refused(WorkModelError::OverBudget) if hosted => {
                     "Zephium AI's included usage is spent; upgrade, buy extra usage or use your own key"
                 }
@@ -2147,6 +2154,23 @@ fn model_stop(error: WorkModelError) -> &'static str {
 }
 
 /// A refused model call in the words the person acts on.
+/// What a refusal on the person's Claude plan means, in its own terms: the
+/// plan has no key, so the key notes would send them to the wrong place.
+fn plan_note(error: WorkModelError) -> Option<&'static str> {
+    Some(match error {
+        WorkModelError::MissingKey => {
+            "Claude Code isn't ready for your Claude plan; install or update it, then check Settings → AI"
+        }
+        WorkModelError::Unauthorized => {
+            "Claude Code isn't signed in to your Claude plan; run claude auth login, then try again"
+        }
+        WorkModelError::RateLimited { .. } => {
+            "Your Claude plan's usage limit is reached; it resets on Claude's schedule"
+        }
+        _ => return None,
+    })
+}
+
 fn model_fault(error: WorkModelError, hosted: bool) -> Option<WorkModelFaultV1> {
     Some(match error {
         WorkModelError::MissingKey if hosted => WorkModelFaultV1::SignedOut,
@@ -2477,6 +2501,22 @@ mod compact_tests {
             Some(WorkModelFaultV1::KeyRefused)
         );
         assert_eq!(fault(WorkModelError::Cancelled, false), None);
+    }
+
+    #[test]
+    fn claude_plan_refusals_speak_of_claude_code_not_keys() {
+        for error in [
+            WorkModelError::MissingKey,
+            WorkModelError::Unauthorized,
+            WorkModelError::RateLimited {
+                retry_after_ms: None,
+            },
+        ] {
+            let note = plan_note(error).unwrap();
+            assert!(!note.to_lowercase().contains("key"), "{note}");
+            assert!(note.contains("Claude"), "{note}");
+        }
+        assert_eq!(plan_note(WorkModelError::Protocol), None);
     }
 
     #[test]

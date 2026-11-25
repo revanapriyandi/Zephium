@@ -22,6 +22,7 @@ Use [CONTRIBUTING](../CONTRIBUTING.md) for check commands and host requirements.
 | Durable commands and projections | [store work_document.rs](../crates/zephium-store/src/hub/work_document.rs) and [work_environment.rs](../crates/zephium-store/src/hub/work_environment.rs) |
 | Product execution and settlement | [app work_runtime.rs](../crates/zephium-app/src/work_runtime.rs) and [work_execution.rs](../crates/zephium-app/src/work_execution.rs) |
 | Conversation and delegated parts | [app work_lead](../crates/zephium-app/src/work_lead/) |
+| Models on the person's Claude plan through Claude Code | [app claude_account](../crates/zephium-app/src/claude_account/) and [work_models.rs](../crates/zephium-app/src/work_models.rs) |
 | Desktop composition and native presentation | [desktop work.rs](../desktop/src/work.rs), [work_product.rs](../desktop/src/work_product.rs) and [work_human.rs](../desktop/src/work_human.rs) |
 | Retained browser ownership | [app work_resources.rs](../crates/zephium-app/src/work_resources.rs) |
 | Sidebar assistant | [Sidebar assistant](#sidebar-assistant) below |

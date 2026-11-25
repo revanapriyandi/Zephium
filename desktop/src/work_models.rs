@@ -79,6 +79,32 @@ pub(crate) struct WorkModelEffortsV1 {
     pub(crate) levels: Vec<WorkModelReasoning>,
 }
 
+/// How the person's own Claude Code stands, for the Claude plan option.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, specta::Type, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum WorkClaudeAccountStateV1 {
+    /// Not looked at yet.
+    #[default]
+    Unknown,
+    NotInstalled,
+    /// An install Zephium does not run (a Windows batch shim).
+    UnsupportedInstall,
+    TooOld,
+    SignedOut,
+    /// Signed in with an API key or console login, not a Claude plan.
+    ApiKeyLogin,
+    SignedIn,
+}
+
+/// The Claude plan option: off by default, never a fallback.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, specta::Type)]
+pub(crate) struct WorkClaudeAccountV1 {
+    pub(crate) enabled: bool,
+    pub(crate) state: WorkClaudeAccountStateV1,
+    /// The signed-in account's email, when Claude Code says it.
+    pub(crate) account: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, specta::Type)]
 pub(crate) struct WorkModelsV1 {
     pub(crate) version: u32,
@@ -95,6 +121,7 @@ pub(crate) struct WorkModelsV1 {
     pub(crate) efforts: Vec<WorkModelEffortsV1>,
     /// The effort the lead runs at now; null when its model takes none.
     pub(crate) effort: Option<WorkModelReasoning>,
+    pub(crate) claude_account: WorkClaudeAccountV1,
 }
 
 impl WorkModelsV1 {
@@ -110,6 +137,7 @@ impl WorkModelsV1 {
             fault: Some(fault),
             efforts: Vec::new(),
             effort: None,
+            claude_account: WorkClaudeAccountV1::default(),
         }
     }
 }
@@ -209,6 +237,25 @@ mod product {
         }
     }
 
+    pub(super) fn claude_account(view: models::WorkClaudeAccountView) -> WorkClaudeAccountV1 {
+        use zephium_app::claude_account::ClaudeAccountState as S;
+        use WorkClaudeAccountStateV1 as V;
+        let (state, account) = match view.state {
+            None => (V::Unknown, None),
+            Some(S::NotInstalled) => (V::NotInstalled, None),
+            Some(S::UnsupportedInstall) => (V::UnsupportedInstall, None),
+            Some(S::TooOld) => (V::TooOld, None),
+            Some(S::SignedOut) => (V::SignedOut, None),
+            Some(S::ApiKeyLogin) => (V::ApiKeyLogin, None),
+            Some(S::SignedIn { account }) => (V::SignedIn, account),
+        };
+        WorkClaudeAccountV1 {
+            enabled: view.enabled,
+            state,
+            account,
+        }
+    }
+
     pub(super) async fn view(profile: ProfileId, fault: Option<WorkModelsFaultV1>) -> WorkModelsV1 {
         let view = models::view(profile).await;
         let [lead, page, light] = view.chosen;
@@ -248,6 +295,7 @@ mod product {
                 .map(|(id, levels)| WorkModelEffortsV1 { id, levels })
                 .collect(),
             effort: view.effort,
+            claude_account: claude_account(view.claude_account),
         }
     }
 
@@ -271,6 +319,7 @@ mod product {
             },
             Action::ClearKey(provider) => models::clear_key(provider).await,
             Action::Endpoint(base) => models::set_compatible_base(base.as_deref()).await,
+            Action::ClaudeAccount(enabled) => models::set_claude_account(enabled).await,
         };
         result.err().map(fault)
     }
@@ -296,6 +345,7 @@ pub(crate) enum Action {
     TestKey(WorkModelProvider),
     ClearKey(WorkModelProvider),
     Endpoint(Option<String>),
+    ClaudeAccount(bool),
 }
 
 pub(crate) fn install(app: &tauri::AppHandle) {
@@ -314,6 +364,7 @@ fn action_name(action: &Action) -> &'static str {
         Action::TestKey(..) => "test_key",
         Action::ClearKey(..) => "clear_key",
         Action::Endpoint(..) => "endpoint",
+        Action::ClaudeAccount(..) => "claude_account",
     }
 }
 
@@ -536,6 +587,23 @@ pub(crate) async fn work_set_model_endpoint(
     .await
 }
 
+/// Turns running models on the person's Claude plan on or off.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn work_set_claude_account(
+    caller: WebviewWindow,
+    expected_profile: String,
+    enabled: bool,
+) -> WorkModelsV1 {
+    respond(
+        caller,
+        expected_profile,
+        Action::ClaudeAccount(enabled),
+        "work_set_claude_account",
+    )
+    .await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn work_more_models(
@@ -654,5 +722,39 @@ mod release_tests {
         let value = serde_json::to_value(provider).unwrap();
         assert_eq!(value["key"], "valid");
         assert_eq!(value["fault"], "billing");
+    }
+}
+
+#[cfg(all(test, feature = "work-product"))]
+mod claude_account_tests {
+    use super::*;
+    use zephium_app::claude_account::ClaudeAccountState as S;
+    use zephium_app::work_models::WorkClaudeAccountView;
+
+    fn mapped(enabled: bool, state: Option<S>) -> WorkClaudeAccountV1 {
+        product::claude_account(WorkClaudeAccountView { enabled, state })
+    }
+
+    #[test]
+    fn claude_account_states_map_closed() {
+        assert_eq!(mapped(false, None).state, WorkClaudeAccountStateV1::Unknown);
+        assert_eq!(
+            mapped(true, Some(S::ApiKeyLogin)).state,
+            WorkClaudeAccountStateV1::ApiKeyLogin
+        );
+        let signed_in = mapped(
+            true,
+            Some(S::SignedIn {
+                account: Some("a@b.c".into()),
+            }),
+        );
+        assert!(signed_in.enabled);
+        assert_eq!(signed_in.state, WorkClaudeAccountStateV1::SignedIn);
+        assert_eq!(signed_in.account.as_deref(), Some("a@b.c"));
+        assert_eq!(mapped(false, Some(S::SignedOut)).account, None);
+        assert_eq!(
+            serde_json::to_value(WorkClaudeAccountStateV1::UnsupportedInstall).unwrap(),
+            "unsupported_install"
+        );
     }
 }

@@ -16,6 +16,7 @@
   import SettingsGroup from "$shared/ui/SettingsGroup";
   import SettingsRow from "$shared/ui/SettingsRow";
   import AiProviderRow from "../AiProviderRow.svelte";
+  import AiClaudeAccountRow from "../AiClaudeAccountRow.svelte";
   import AiVoiceRow from "../AiVoiceRow.svelte";
   import AiZephiumRow from "../AiZephiumRow.svelte";
   import WorkDecisions from "../WorkDecisions.svelte";
@@ -52,7 +53,9 @@
   ];
   const anyUsable = $derived(
     !!models &&
-      (usable(models, "cloud") || keyedProviders.some((provider) => usable(models, provider))),
+      (usable(models, "cloud") ||
+        usable(models, "claude_account") ||
+        keyedProviders.some((provider) => usable(models, provider))),
   );
 
   function label(entry: WorkModelEntry) {
@@ -103,7 +106,7 @@
     {#if session}{#each keyedProviders as provider (provider)}<AiProviderRow
           {session}
           {provider}
-        />{/each}{/if}
+        />{#if provider === "anthropic"}<AiClaudeAccountRow {session} />{/if}{/each}{/if}
   </SettingsGroup>
 
   <SettingsGroup
