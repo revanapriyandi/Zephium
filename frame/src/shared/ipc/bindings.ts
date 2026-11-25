@@ -93,6 +93,8 @@ export const commands = {
 	workTestProviderKey: (expectedProfile: string, provider: WorkModelProvider) => __TAURI_INVOKE<WorkModelsV1_Serialize>("work_test_provider_key", { expectedProfile, provider }),
 	workClearProviderKey: (expectedProfile: string, provider: WorkModelProvider) => __TAURI_INVOKE<WorkModelsV1_Serialize>("work_clear_provider_key", { expectedProfile, provider }),
 	workSetModelEndpoint: (expectedProfile: string, base: string | null) => __TAURI_INVOKE<WorkModelsV1_Serialize>("work_set_model_endpoint", { expectedProfile, base }),
+	/**  Turns running models on the person's Claude plan on or off. */
+	workSetClaudeAccount: (expectedProfile: string, enabled: boolean) => __TAURI_INVOKE<WorkModelsV1_Serialize>("work_set_claude_account", { expectedProfile, enabled }),
 	workMoreModels: (expectedProfile: string, provider: WorkModelProvider) => __TAURI_INVOKE<WorkMoreModelsV1_Serialize>("work_more_models", { expectedProfile, provider }),
 	/**  Ollama and LM Studio on their default ports, for one-click setup. */
 	workLocalServers: () => __TAURI_INVOKE<WorkLocalServerV1[]>("work_local_servers"),
@@ -2260,7 +2262,9 @@ export type PageAssistCostV1 =
  */
 { kind: "byok"; model: string; provider: string; usd: string | null } |
 /**  A model on this device or network; no charge. */
-{ kind: "local"; model: string };
+{ kind: "local"; model: string } |
+/**  A model on the person's own Claude plan; only the plan's usage. */
+{ kind: "plan"; model: string };
 
 export type PageAssistDecisionV1 = "approve" | "decline";
 
@@ -4500,6 +4504,23 @@ export type WorkChecklistItem = {
 	completed: boolean,
 };
 
+/**  How the person's own Claude Code stands, for the Claude plan option. */
+export type WorkClaudeAccountStateV1 =
+/**  Not looked at yet. */
+"unknown" | "not_installed" |
+/**  An install Zephium does not run (a Windows batch shim). */
+"unsupported_install" | "too_old" | "signed_out" |
+/**  Signed in with an API key or console login, not a Claude plan. */
+"api_key_login" | "signed_in";
+
+/**  The Claude plan option: off by default, never a fallback. */
+export type WorkClaudeAccountV1 = {
+	enabled: boolean,
+	state: WorkClaudeAccountStateV1,
+	/**  The signed-in account's email, when Claude Code says it. */
+	account: string | null,
+};
+
 /**  A command-line tool as Settings shows it. */
 export type WorkCliRowV1 = WorkCliRowV1_Serialize | WorkCliRowV1_Deserialize;
 
@@ -5984,7 +6005,9 @@ export type WorkModelProvider = "open_ai" | "anthropic" | "google" | "deep_seek"
 /**  Any OpenAI-compatible chat endpoint the person configured. */
 "compatible" |
 /**  Zephium Cloud: the upstream's native body, our base URL and bearer. */
-"cloud";
+"cloud" |
+/**  The person's own signed-in Claude Code CLI, on their subscription. */
+"claude_account";
 
 export type WorkModelReasoning = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -6061,6 +6084,7 @@ export type WorkModelsV1_Deserialize = {
 	efforts: WorkModelEffortsV1[],
 	/**  The effort the lead runs at now; null when its model takes none. */
 	effort: WorkModelReasoning | null,
+	claude_account: WorkClaudeAccountV1,
 };
 
 export type WorkModelsV1_Serialize = {
@@ -6078,6 +6102,7 @@ export type WorkModelsV1_Serialize = {
 	efforts: WorkModelEffortsV1[],
 	/**  The effort the lead runs at now; null when its model takes none. */
 	effort: WorkModelReasoning | null,
+	claude_account: WorkClaudeAccountV1,
 };
 
 export type WorkMoreModelsV1 = WorkMoreModelsV1_Serialize | WorkMoreModelsV1_Deserialize;

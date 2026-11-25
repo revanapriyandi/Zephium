@@ -191,6 +191,11 @@ jobs:
       - name: Report flaky tests
         if: ${{ !cancelled() }}
         run: python3 scripts/ci/flaky-summary.py target/nextest/ci/junit.xml
+      # The Claude account client against its stand-in CLI: process-tree
+      # cleanup, cleared environment, limits. Its fixture feature is off in
+      # the workspace run above; no profile, so that run's JUnit report stays.
+      - name: Claude account process tests
+        run: cargo nextest run -p zephium-app --features claude-fixture,work-execution --test claude_account --locked --retries 2
       # The desktop export test regenerates all three IPC contracts.
       - name: Bindings drift
         run: |
@@ -266,4 +271,9 @@ jobs:
         if: ${{ !cancelled() }}
         shell: bash
         run: python scripts/ci/flaky-summary.py target/nextest/ci/junit.xml
+      # The Claude account client against its stand-in CLI: process-tree
+      # cleanup, cleared environment, limits. Its fixture feature is off in
+      # the workspace run above; no profile, so that run's JUnit report stays.
+      - name: Claude account process tests
+        run: cargo nextest run -p zephium-app --features claude-fixture,work-execution --test claude_account --locked --retries 2
       - run: cargo test --locked --manifest-path desktop/windows-log-tests/Cargo.toml

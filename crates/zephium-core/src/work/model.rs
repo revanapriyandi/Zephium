@@ -30,6 +30,8 @@ pub enum WorkModelProvider {
     Compatible,
     /// Zephium Cloud: the upstream's native body, our base URL and bearer.
     Cloud,
+    /// The person's own signed-in Claude Code CLI, on their subscription.
+    ClaudeAccount,
 }
 
 #[cfg_attr(feature = "ipc-types", derive(specta::Type))]
@@ -356,12 +358,16 @@ pub struct WorkModelEntry {
 }
 
 impl WorkModelEntry {
-    /// A compatible model whose resolved price carries no usage charge.
-    pub fn is_free_compatible(&self) -> bool {
-        self.model.provider == WorkModelProvider::Compatible
-            && self.price.as_ref().is_some_and(|price| {
-                price.input == 0 && price.cached_input == 0 && price.output == 0
-            })
+    /// A model whose resolved price carries no usage charge: a free
+    /// compatible endpoint, or the person's Claude subscription.
+    pub fn is_free_usage(&self) -> bool {
+        matches!(
+            self.model.provider,
+            WorkModelProvider::Compatible | WorkModelProvider::ClaudeAccount
+        ) && self
+            .price
+            .as_ref()
+            .is_some_and(|price| price.input == 0 && price.cached_input == 0 && price.output == 0)
     }
 }
 
@@ -446,5 +452,55 @@ mod local_endpoint_tests {
         ] {
             assert!(!local_model_endpoint(base), "{base}");
         }
+    }
+}
+
+#[cfg(test)]
+mod free_usage_tests {
+    use super::*;
+
+    fn entry(provider: WorkModelProvider, price: u64) -> WorkModelEntry {
+        WorkModelEntry {
+            id: "x/y".into(),
+            model: WorkModelRef {
+                provider,
+                wire: WorkModelWire::AnthropicMessages,
+                model: "y".into(),
+            },
+            display_name: "Y".into(),
+            roles: vec![WorkModelRole::Lead],
+            recommended: false,
+            context_window: 1,
+            max_output: 1,
+            supports: WorkModelSupports {
+                tools: true,
+                vision: false,
+                prompt_cache: false,
+                reasoning: false,
+                native_search: false,
+            },
+            price: Some(WorkModelPrice {
+                input: price,
+                cached_input: price,
+                output: price,
+            }),
+        }
+    }
+
+    #[test]
+    fn claude_account_zero_price_is_free() {
+        assert!(entry(WorkModelProvider::ClaudeAccount, 0).is_free_usage());
+        assert!(!entry(WorkModelProvider::ClaudeAccount, 5).is_free_usage());
+        assert!(!entry(WorkModelProvider::Anthropic, 0).is_free_usage());
+        assert!(entry(WorkModelProvider::Compatible, 0).is_free_usage());
+        assert!(!entry(WorkModelProvider::Compatible, 5).is_free_usage());
+    }
+
+    #[test]
+    fn claude_account_serde_name() {
+        assert_eq!(
+            serde_json::to_string(&WorkModelProvider::ClaudeAccount).unwrap(),
+            "\"claude_account\""
+        );
     }
 }

@@ -53,6 +53,13 @@ const ROLES: [WorkModelRole; 3] = [
 ];
 const CLOUD_CATALOG_KEY: &str = "work.models.cloud.catalog";
 const COMPATIBLE_BASE_KEY: &str = "work.models.compatible.base";
+/// "1" when the person turned on running models on their Claude plan.
+const CLAUDE_ACCOUNT_KEY: &str = "work.models.claude_account.enabled";
+/// How long one look at a signed-in Claude Code is shown and used.
+const CLAUDE_ACCOUNT_FRESH: Duration = Duration::from_secs(5 * 60);
+/// How soon Claude Code is looked at again while it is not ready, so an
+/// install or `claude auth login` shows without a restart.
+const CLAUDE_ACCOUNT_RECHECK: Duration = Duration::from_secs(15);
 const LEGACY_PRICE_ORIGIN_KEY: &str = "work.models.compatible.legacy_price_origin";
 const CLOUD_REFRESH: Duration = Duration::from_secs(60 * 60);
 const CLOUD_RETRY: Duration = Duration::from_secs(30);
@@ -297,6 +304,99 @@ struct State {
     /// Choices kept in memory when no settings store is installed.
     choices: HashMap<String, StoredChoice>,
     efforts: HashMap<String, String>,
+    /// The Claude plan toggle, kept in memory when no settings store is installed.
+    claude_account_on: Option<bool>,
+    /// The last look at the installed Claude Code.
+    claude_account: Option<ClaudeAccountProbe>,
+    /// A look at Claude Code is running in the background.
+    claude_account_probing: bool,
+}
+
+/// One look at the installed Claude Code.
+struct ClaudeAccountProbe {
+    state: crate::claude_account::ClaudeAccountState,
+    cli: Option<crate::claude_account::ClaudeCli>,
+    at: Instant,
+}
+
+fn claude_account_on(state: &State) -> bool {
+    match setting(CLAUDE_ACCOUNT_KEY) {
+        Some(value) => value == "1",
+        None => state.claude_account_on.unwrap_or(false),
+    }
+}
+
+/// The signed-in Claude Code to run calls with, when the toggle is on.
+fn claude_account_cli(state: &State) -> Option<&crate::claude_account::ClaudeCli> {
+    claude_account_on(state)
+        .then(|| state.claude_account.as_ref()?.cli.as_ref())
+        .flatten()
+}
+
+/// How long a look that found `state` stays current.
+fn claude_account_fresh_for(state: &crate::claude_account::ClaudeAccountState) -> Duration {
+    match state {
+        crate::claude_account::ClaudeAccountState::SignedIn { .. } => CLAUDE_ACCOUNT_FRESH,
+        _ => CLAUDE_ACCOUNT_RECHECK,
+    }
+}
+
+fn claude_account_stale(state: &State) -> bool {
+    state
+        .claude_account
+        .as_ref()
+        .is_none_or(|probe| probe.at.elapsed() >= claude_account_fresh_for(&probe.state))
+}
+
+/// Looks at the installed Claude Code again when the last look is stale (or
+/// always, with `force`). Runs `claude --version` and `claude auth status`.
+async fn refresh_claude_account(force: bool) {
+    if cfg!(test) {
+        return;
+    }
+    let (stale, ready) = {
+        let state = state();
+        let ready = state
+            .claude_account
+            .as_ref()
+            .is_some_and(|probe| probe.cli.is_some());
+        (claude_account_stale(&state), ready)
+    };
+    if !force && !stale {
+        return;
+    }
+    if force || !ready {
+        // "Not installed" is cached per process; look for a new install.
+        crate::work_connections::cli::forget();
+    }
+    let (found, cli) = crate::claude_account::probe().await;
+    state().claude_account = Some(ClaudeAccountProbe {
+        state: found,
+        cli,
+        at: Instant::now(),
+    });
+    notify();
+}
+
+/// Turns running models on the person's Claude plan on or off. Off by
+/// default; turning it on looks at the installed Claude Code afresh.
+pub async fn set_claude_account(enabled: bool) -> Result<(), WorkModelError> {
+    let value = if enabled { "1" } else { "" };
+    if SETTINGS.read().ok().is_some_and(|slot| slot.is_some())
+        && !store_setting(CLAUDE_ACCOUNT_KEY.to_owned(), value.to_owned())
+    {
+        return Err(WorkModelError::Unauthorized);
+    }
+    {
+        let mut state = state();
+        state.claude_account_on = Some(enabled);
+        *state.generations.entry(P::ClaudeAccount).or_default() += 1;
+    }
+    if enabled {
+        refresh_claude_account(true).await;
+    }
+    notify();
+    Ok(())
 }
 
 fn state() -> std::sync::MutexGuard<'static, State> {
@@ -329,6 +429,10 @@ pub(crate) async fn blocking<T: Send + 'static>(
 
 /// Reads which keys exist, from Keychain attributes only, once per process.
 pub(crate) async fn ensure_presence() {
+    let on = claude_account_on(&state());
+    if on {
+        refresh_claude_account(false).await;
+    }
     let missing: Vec<_> = {
         let mut state = state();
         load_cloud_cache(&mut state);
@@ -379,6 +483,7 @@ fn compatible_base() -> Option<String> {
 fn usable(state: &State, provider: WorkModelProvider) -> bool {
     match provider {
         P::Cloud => cloud().is_some() && state.cloud.iter().any(|model| model.available),
+        P::ClaudeAccount => claude_account_cli(state).is_some(),
         P::Compatible => {
             compatible_base().is_some() && key_status(state, provider) != WorkKeyStatus::Invalid
         }
@@ -530,6 +635,9 @@ fn entries(state: &State) -> Vec<WorkModelEntry> {
     if cloud().is_some() {
         all.extend(state.cloud.iter().map(|model| model.entry.clone()));
     }
+    if claude_account_on(state) {
+        all.extend(crate::claude_account::entries());
+    }
     all
 }
 
@@ -582,7 +690,7 @@ fn stored_choice(state: &State, profile: ProfileId, role: WorkModelRole) -> Opti
                     origin.as_str() != endpoint.as_deref().unwrap_or_default()
                 });
                 let unproven_zero =
-                    !local && entry.is_free_compatible() && stored.local_price != Some(false);
+                    !local && entry.is_free_usage() && stored.local_price != Some(false);
                 if changed_endpoint || unproven_zero {
                     entry.price = None;
                 }
@@ -696,7 +804,11 @@ fn effective(state: &State, profile: ProfileId, role: WorkModelRole) -> Option<W
         return (usable(state, choice.model.provider) && exists).then_some(choice);
     }
     if role != WorkModelRole::Lead {
-        if let Some(lead) = effective(state, profile, WorkModelRole::Lead) {
+        // The Claude plan runs only the roles the person chose it for: a
+        // lead on it lends nothing to the other roles.
+        if let Some(lead) = effective(state, profile, WorkModelRole::Lead)
+            .filter(|lead| lead.model.provider != P::ClaudeAccount)
+        {
             return family_entry(state, lead.model.provider, role).or(Some(lead));
         }
     }
@@ -961,6 +1073,12 @@ fn client_for(
     source: Option<WorkCallSource>,
 ) -> Result<Arc<dyn WorkModelClient>, WorkModelError> {
     let provider = entry.model.provider;
+    if provider == P::ClaudeAccount {
+        let cli = claude_account_cli(state).ok_or(WorkModelError::MissingKey)?;
+        return Ok(Arc::new(crate::claude_account::ClaudeAccountClient::new(
+            cli.clone(),
+        )));
+    }
     let (target, credential): (LeadTarget, Arc<dyn LeadCredential>) = match provider {
         P::Cloud => {
             let session = cloud().ok_or(WorkModelError::MissingKey)?;
@@ -1079,10 +1197,33 @@ pub struct WorkModelsView {
     pub efforts: Vec<(String, Vec<WorkModelReasoning>)>,
     /// The effort the lead runs at now; `None` when its model takes none.
     pub effort: Option<WorkModelReasoning>,
+    pub claude_account: WorkClaudeAccountView,
+}
+
+/// The Claude plan option as Settings shows it.
+#[derive(Clone, Debug)]
+pub struct WorkClaudeAccountView {
+    pub enabled: bool,
+    /// `None` before Claude Code was looked at.
+    pub state: Option<crate::claude_account::ClaudeAccountState>,
 }
 
 /// The current view for `profile`.
 pub async fn view(profile: ProfileId) -> WorkModelsView {
+    // Settings shows how Claude Code stands even while the option is off,
+    // looked at in the background so a slow CLI never holds the view.
+    let start = {
+        let mut state = state();
+        let start = !cfg!(test) && !state.claude_account_probing && claude_account_stale(&state);
+        state.claude_account_probing |= start;
+        start
+    };
+    if start {
+        tokio::spawn(async {
+            refresh_claude_account(false).await;
+            state().claude_account_probing = false;
+        });
+    }
     ensure_presence().await;
     let state = state();
     let chosen = ROLES.map(|role| stored_choice(&state, profile, role).map(|entry| entry.id));
@@ -1132,6 +1273,13 @@ pub async fn view(profile: ProfileId) -> WorkModelsView {
             .collect(),
         efforts,
         effort,
+        claude_account: WorkClaudeAccountView {
+            enabled: claude_account_on(&state),
+            state: state
+                .claude_account
+                .as_ref()
+                .map(|probe| probe.state.clone()),
+        },
     }
 }
 
@@ -1507,7 +1655,7 @@ mod tests {
             .unwrap();
         let resolved = priced_locally(entry.clone(), true);
         assert!(
-            priced_locally(resolved.clone(), false).is_free_compatible(),
+            priced_locally(resolved.clone(), false).is_free_usage(),
             "an explicit zero price from a remote model list must survive"
         );
         let free = resolved.price.unwrap();
@@ -1560,7 +1708,7 @@ mod tests {
                 ..priced.clone()
             };
             let resolved = priced_locally(entry, true);
-            assert!(!resolved.is_free_compatible());
+            assert!(!resolved.is_free_usage());
             assert_eq!(resolved.price, Some(price));
         }
     }
@@ -1622,8 +1770,123 @@ mod tests {
         }
     }
 
+    /// Serializes tests that replace the process-wide model state.
+    static STATE_TESTS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// A probed Claude Code (signed in or not), with the toggle on or off.
+    fn with_claude_account(enabled: bool, signed_in: bool) {
+        let mut state = state();
+        state.claude_account_on = Some(enabled);
+        state.claude_account = Some(ClaudeAccountProbe {
+            state: if signed_in {
+                crate::claude_account::ClaudeAccountState::SignedIn { account: None }
+            } else {
+                crate::claude_account::ClaudeAccountState::SignedOut
+            },
+            cli: signed_in.then(|| crate::claude_account::ClaudeCli {
+                program: std::path::PathBuf::from("claude"),
+                version: (2, 1, 331),
+            }),
+            at: Instant::now(),
+        });
+    }
+
+    fn ids(profile: ProfileId) -> [Option<String>; 3] {
+        let state = state();
+        ROLES.map(|role| effective(&state, profile, role).map(|entry| entry.id))
+    }
+
+    #[test]
+    fn claude_account_rechecks_soon_until_signed_in() {
+        use crate::claude_account::ClaudeAccountState as S;
+        assert_eq!(
+            claude_account_fresh_for(&S::SignedIn { account: None }),
+            CLAUDE_ACCOUNT_FRESH
+        );
+        for state in [S::NotInstalled, S::SignedOut, S::ApiKeyLogin, S::TooOld] {
+            assert_eq!(
+                claude_account_fresh_for(&state),
+                CLAUDE_ACCOUNT_RECHECK,
+                "{state:?}"
+            );
+        }
+        assert!(CLAUDE_ACCOUNT_RECHECK < Duration::from_secs(30));
+    }
+
+    #[tokio::test]
+    async fn claude_account_is_opt_in_free_and_never_a_fallback() {
+        let _serial = STATE_TESTS.lock().await;
+        let profile = ProfileId::from(77_u128);
+        // Choices persist in the store, so resetting key state keeps them.
+        install_settings(Arc::new(Memory(Mutex::new(HashMap::new()))));
+        with_keys(&[]);
+        with_claude_account(false, true);
+        assert!(
+            !entries(&state())
+                .iter()
+                .any(|entry| entry.model.provider == P::ClaudeAccount),
+            "listed only when enabled"
+        );
+        assert_eq!(
+            choose(profile, WorkModelRole::Lead, Some("claude_account/opus")),
+            Err(WorkModelError::BadRequest)
+        );
+
+        with_claude_account(true, true);
+        let listed: Vec<_> = entries(&state())
+            .into_iter()
+            .filter(|entry| entry.model.provider == P::ClaudeAccount)
+            .collect();
+        assert_eq!(
+            listed
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "claude_account/opus",
+                "claude_account/sonnet",
+                "claude_account/haiku",
+                "claude_account/fable"
+            ]
+        );
+        assert!(listed.iter().all(WorkModelEntry::is_free_usage));
+        assert_eq!(
+            ids(profile),
+            [None, None, None],
+            "enabled and signed in, but nothing chosen: never a fallback"
+        );
+
+        choose(profile, WorkModelRole::Lead, Some("claude_account/opus")).unwrap();
+        assert_eq!(
+            ids(profile),
+            [Some("claude_account/opus".into()), None, None],
+            "the lead's account does not spill over to other roles"
+        );
+        {
+            let state = state();
+            let lead = effective(&state, profile, WorkModelRole::Lead).unwrap();
+            assert!(client_for(&state, &lead, None).is_ok());
+        }
+
+        with_keys(&[P::OpenAi]);
+        with_claude_account(true, true);
+        let [lead, page, _] = ids(profile);
+        assert_eq!(lead.as_deref(), Some("claude_account/opus"));
+        assert!(
+            page.is_some_and(|id| !id.starts_with("claude_account/")),
+            "other roles fall back to keys, not the account"
+        );
+
+        with_claude_account(true, false);
+        assert_eq!(ids(profile)[0], None, "signed out: the choice is unusable");
+        with_claude_account(false, true);
+        assert_eq!(ids(profile)[0], None, "toggle off: the choice is unusable");
+        choose(profile, WorkModelRole::Lead, None).unwrap();
+    }
+
     #[tokio::test]
     async fn defaults_choices_failures_and_stale_results_stay_truthful() {
+        let _serial = STATE_TESTS.lock().await;
         install_settings(Arc::new(Memory(Mutex::new(HashMap::new()))));
         set_compatible_base(Some("https://old-provider.example/v1"))
             .await
@@ -1803,9 +2066,7 @@ mod tests {
             output: 0,
         });
         for role in ROLES {
-            assert!(effective(&state(), other, role)
-                .unwrap()
-                .is_free_compatible());
+            assert!(effective(&state(), other, role).unwrap().is_free_usage());
         }
         let id = "compatible/local-model";
         choose(other, WorkModelRole::Lead, Some(id)).unwrap();
@@ -1814,7 +2075,7 @@ mod tests {
         assert!(
             stored_choice(&state(), other, WorkModelRole::Lead)
                 .unwrap()
-                .is_free_compatible(),
+                .is_free_usage(),
             "explicit remote zero prices survive restart"
         );
         // Choices made under a local endpoint must not retain derived zero when it becomes remote.
@@ -1855,7 +2116,7 @@ mod tests {
             assert!(
                 stored_choice(&state(), other, role)
                     .unwrap()
-                    .is_free_compatible(),
+                    .is_free_usage(),
                 "fresh explicit prices supersede stale or unclassified stored prices"
             );
             choose(other, role, None).unwrap();
@@ -2058,7 +2319,7 @@ mod tests {
                 .unwrap();
             assert!(stored_choice(&state(), other, WorkModelRole::Lead)
                 .unwrap()
-                .is_free_compatible());
+                .is_free_usage());
             row.price = explicit.clone();
             state().listed.insert(P::Compatible, vec![row.clone()]);
             choose(other, WorkModelRole::Lead, Some(&row.id)).unwrap();
@@ -2078,7 +2339,7 @@ mod tests {
             assert!(
                 stored_choice(&state(), other, WorkModelRole::Lead)
                     .unwrap()
-                    .is_free_compatible(),
+                    .is_free_usage(),
                 "a different local endpoint must not inherit an old explicit charge"
             );
             set_compatible_base(Some("https://pricing-second.example/v1"))

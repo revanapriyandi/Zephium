@@ -2002,6 +2002,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             work_models::work_test_provider_key,
             work_models::work_clear_provider_key,
             work_models::work_set_model_endpoint,
+            work_models::work_set_claude_account,
             work_models::work_more_models,
             work_models::work_local_servers,
             voice::voice_status,

@@ -405,6 +405,8 @@ pub fn wire(provider: WorkModelProvider) -> WorkModelWire {
         P::OpenAi => WorkModelWire::OpenAiResponses,
         P::Anthropic => WorkModelWire::AnthropicMessages,
         P::Google => WorkModelWire::Gemini,
+        // A label only: the account client speaks to the Claude Code CLI.
+        P::ClaudeAccount => WorkModelWire::AnthropicMessages,
         P::XAi => WorkModelWire::OpenAiResponses,
         P::DeepSeek
         | P::OpenRouter
@@ -435,6 +437,7 @@ pub fn provider_slug(provider: WorkModelProvider) -> &'static str {
         P::Cerebras => "cerebras",
         P::Compatible => "compatible",
         P::Cloud => "zephium",
+        P::ClaudeAccount => "claude_account",
     }
 }
 
@@ -452,6 +455,7 @@ pub fn provider_from_slug(slug: &str) -> Option<WorkModelProvider> {
         "cerebras" => P::Cerebras,
         "compatible" => P::Compatible,
         "zephium" => P::Cloud,
+        "claude_account" => P::ClaudeAccount,
         _ => return None,
     })
 }

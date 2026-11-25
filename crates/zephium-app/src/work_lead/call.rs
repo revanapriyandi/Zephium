@@ -29,7 +29,7 @@ impl WorkLeadModels {
     pub fn all_free(&self) -> bool {
         [&self.lead, &self.page, &self.light]
             .iter()
-            .all(|model| model.entry.is_free_compatible())
+            .all(|model| model.entry.is_free_usage())
     }
     pub fn for_role(&self, role: WorkModelRole) -> &LeadModel {
         match role {
@@ -66,7 +66,7 @@ pub(crate) fn usage(entry: &WorkModelEntry, usage: WorkModelUsage) -> WorkUsage 
     let fresh = usage.input_tokens - cached;
     let tokens = fresh.saturating_add(usage.output_tokens);
     let (cost, accounting) = match (usage.cost_micros, &entry.price) {
-        _ if entry.is_free_compatible() => (0, WorkUsageAccounting::Exact),
+        _ if entry.is_free_usage() => (0, WorkUsageAccounting::Exact),
         (Some(cost), _) => (cost, WorkUsageAccounting::Exact),
         (None, Some(price)) => (
             priced(price, fresh, cached, usage.output_tokens),
@@ -138,7 +138,7 @@ pub(crate) async fn call(
                 let remaining = run.remaining();
                 run.charge(WorkUsage {
                     model_tokens: remaining.model_tokens,
-                    cost_micro_usd: if model.entry.is_free_compatible() { 0 } else { remaining.cost_micro_usd },
+                    cost_micro_usd: if model.entry.is_free_usage() { 0 } else { remaining.cost_micro_usd },
                     operations: 1,
                     accounting: WorkUsageAccounting::ConservativeReservation,
                 });

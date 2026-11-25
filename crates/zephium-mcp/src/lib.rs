@@ -21,7 +21,7 @@ pub mod keychain;
 pub mod oauth;
 mod stdio;
 
-pub use stdio::StdioServer;
+pub use stdio::{Bounded, Process, StdioServer};
 
 /// One line from a stdio server, at most.
 pub const MAX_MESSAGE_BYTES: usize = 8 * 1024 * 1024;

@@ -442,6 +442,8 @@ pub enum PageAssistCostV1 {
     },
     /// A model on this device or network; no charge.
     Local { model: String },
+    /// A model on the person's own Claude plan; only the plan's usage.
+    Plan { model: String },
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq, Type)]

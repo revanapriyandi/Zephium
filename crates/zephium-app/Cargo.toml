@@ -15,6 +15,9 @@ work-runtime = ["work-planning", "dep:reqwest", "dep:socket2", "dep:serde", "dep
 # Explicit public synthesis diagnostics; agentic refuses probe-harness in optimized builds.
 work-synthesis-probe = ["work-runtime", "zephium-agentic/probe-harness"]
 agentic-browser = ["dep:zephium-agentic"]
+# Builds `zephium-fake-claude`, the stand-in CLI the Claude account tests run.
+# Test-only; no shipping feature enables it.
+claude-fixture = ["work-runtime"]
 work-execution = ["agentic-browser", "dep:zephium-agent-controller", "dep:zephium-agent-runtime", "dep:zephium-agent-provider-transport"]
 # Explicit public-data qualification only; dependencies independently refuse release.
 work-execution-probe = ["work-execution", "zephium-agent-controller/probe-harness"]
@@ -63,6 +66,15 @@ libc = { version = "=0.2.191", optional = true }
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-core = "0.61"
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_UI_Shell", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Pipes", "Win32_System_IO", "Win32_Security", "Win32_Security_Isolation", "Win32_Security_Authorization"] }
+
+[[bin]]
+name = "zephium-fake-claude"
+path = "src/bin/fake_claude.rs"
+required-features = ["claude-fixture"]
+
+[[test]]
+name = "claude_account"
+required-features = ["claude-fixture"]
 
 [dev-dependencies]
 zephium-agent-model-catalog.workspace = true
