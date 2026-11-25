@@ -25,6 +25,12 @@ secrets. The release gate fails with the names of any that are missing.
 
 The API key needs the Developer role to notarize.
 
+The Apple secrets are all or nothing. With none of them set, the release
+builds and drafts Windows alone: the macOS job is skipped, the draft and
+`latest.json` carry only the Windows installer, and the release notes offer
+no macOS download. Setting only some of them stops the release at the gate.
+The two `TAURI_SIGNING_*` secrets are always required.
+
 ### Updater key
 
 Generate the minisign key pair once and keep the private key and password in a
